@@ -2,541 +2,336 @@ import express from 'express';
 import mongoose from 'mongoose';
 import crypto from 'crypto';
 import QRCode from 'qrcode';
-import nodemailer from 'nodemailer';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
 import cors from 'cors';
 import dotenv from 'dotenv';
 
-// Load environment variables FIRST
+// ==================== CONFIGURATION ====================
 dotenv.config();
-
 const app = express();
 
-// ==================== SECURITY & MIDDLEWARE ====================
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
-      fontSrc: ["'self'", "https://cdnjs.cloudflare.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"]
-    }
-  },
-  crossOriginEmbedderPolicy: false
-}));
+// Replit-friendly settings
+const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0'; // Required for Replit external access
+const CODE_LENGTH = 8; // Changed from 6 to 8 digits
 
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-koyeb-app.koyeb.app'] 
-    : ['http://localhost:3001'],
-  credentials: true
-}));
-
+// ==================== SECURE MIDDLEWARE ====================
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
-// Rate limiting with enhanced configuration
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 100 : 1000,
-  message: { success: false, error: 'Too many requests, please try again later.' },
-  standardHeaders: true,
-  legacyHeaders: false
+// Security headers for Replit
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  next();
 });
-app.use('/api/', limiter);
 
-// ==================== DATABASE CONFIGURATION ====================
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://ian:heruku@cluster0.ra3cm29.mongodb.net/ian_pairing_db?retryWrites=true&w=majority&appName=Cluster0';
+// ==================== DATABASE CONNECTION ====================
+const MONGODB_URI = process.env.MONGODB_URI || 
+                   'mongodb+srv://ian:heruku@cluster0.ra3cm29.mongodb.net/ian_pairing_db?retryWrites=true&w=majority&appName=Cluster0';
 
 let isDBConnected = false;
 
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000
-})
-.then(() => {
-  console.log('✅ MongoDB connected successfully');
-  console.log('📁 Database: ian_pairing_db');
-  isDBConnected = true;
-})
-.catch((err) => {
-  console.error('❌ MongoDB connection error:', err.message);
-  console.log('⚠️  Server running in limited mode (database operations disabled)');
-  isDBConnected = false;
-});
-
-// ==================== DATABASE MODELS ====================
-const pairingCodeSchema = new mongoose.Schema({
-  phoneNumber: {
-    type: String,
-    required: true,
-    index: true
-  },
-  countryCode: {
-    type: String,
-    default: '+254'
-  },
-  fullNumber: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true
-  },
-  pairingCode: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true
-  },
-  sessionId: {
-    type: String,
-    default: () => `IAN_TECH_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`
-  },
-  status: {
-    type: String,
-    enum: ['pending', 'active', 'expired', 'used'],
-    default: 'pending',
-    index: true
-  },
-  ipAddress: String,
-  userAgent: String,
-  expiresAt: {
-    type: Date,
-    default: () => new Date(Date.now() + 10 * 60 * 1000),
-    index: { expireAfterSeconds: 0 }
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    index: true
-  },
-  linkedAt: Date,
-  deviceInfo: {
-    platform: String,
-    browser: String,
-    os: String
-  }
-});
-
-const botSessionSchema = new mongoose.Schema({
-  sessionId: {
-    type: String,
-    required: true,
-    unique: true,
-    index: true
-  },
-  phoneNumber: String,
-  status: {
-    type: String,
-    default: 'pending',
-    index: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    index: true
-  },
-  lastActive: Date
-});
-
-const PairingCode = mongoose.model('PairingCode', pairingCodeSchema);
-const BotSession = mongoose.model('BotSession', botSessionSchema);
-
-// ==================== HELPER FUNCTIONS ====================
-const generateUniqueCode = async () => {
-  let code;
-  let isUnique = false;
-  let attempts = 0;
-  const maxAttempts = 10;
-
-  while (!isUnique && attempts < maxAttempts) {
-    code = Math.floor(100000 + Math.random() * 900000).toString();
-    
-    if (!isDBConnected) {
-      isUnique = true;
-      break;
-    }
-    
-    try {
-      const existing = await PairingCode.findOne({ 
-        pairingCode: code, 
-        status: 'pending',
-        expiresAt: { $gt: new Date() }
-      });
-      if (!existing) isUnique = true;
-    } catch (error) {
-      console.warn('Database check failed, using generated code:', code);
-      isUnique = true;
-    }
-    
-    attempts++;
-  }
-  
-  return code || Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-const validatePhoneNumber = (phoneNumber) => {
-  const cleanNumber = phoneNumber.replace(/\D/g, '');
-  return cleanNumber.length >= 9 && cleanNumber.length <= 12 && /^\d+$/.test(cleanNumber);
-};
-
-// ==================== HTML TEMPLATES ====================
-const htmlTemplates = {
-  landingPage: `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IAN TECH - WhatsApp Pairing Service</title>
-  <style>
-    /* Your existing CSS styles here - keep them exactly as you had */
-  </style>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-</head>
-<body>
-  <!-- Your existing landing page HTML here - keep it exactly as you had -->
-</body>
-</html>`,
-
-  successPage: (code, phoneNumber, qrCodeUrl, expiresAt) => `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pairing Code Ready - IAN TECH</title>
-  <style>
-    /* Your existing success page CSS here - keep it exactly as you had */
-  </style>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-</head>
-<body>
-  <!-- Your existing success page HTML here - keep it exactly as you had -->
-</body>
-</html>`
-};
-
-// ==================== ROUTES ====================
-
-// Landing page
-app.get('/', (req, res) => {
-  res.send(htmlTemplates.landingPage);
-});
-
-// Generate pairing code API
-app.post('/api/generate-code', async (req, res) => {
+const connectDB = async () => {
   try {
-    const { phoneNumber, countryCode = '+254' } = req.body;
+    await mongoose.connect(MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+      serverSelectionTimeoutMS: 5000
+    });
+    isDBConnected = true;
+    console.log('✅ MongoDB Connected');
+  } catch (err) {
+    console.log('⚠️  Using in-memory mode (MongoDB not available)');
+    isDBConnected = false;
+  }
+};
+
+connectDB();
+
+// ==================== IN-MEMORY FALLBACK STORAGE ====================
+// For when MongoDB isn't available (common in Replit testing)
+const memoryStorage = {
+  codes: new Map(),
+  sessions: new Map(),
+  
+  generateCode() {
+    return Math.floor(10000000 + Math.random() * 90000000).toString();
+  },
+  
+  saveCode(code, phone, sessionId) {
+    const data = {
+      phoneNumber: phone,
+      pairingCode: code,
+      sessionId: sessionId,
+      status: 'pending',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+    };
+    this.codes.set(code, data);
+    this.sessions.set(sessionId, data);
+    return data;
+  },
+  
+  findCode(code) {
+    return this.codes.get(code);
+  }
+};
+
+// ==================== 8-DIGIT CODE GENERATOR ====================
+const generate8DigitCode = async () => {
+  // Generate 8-digit code: first ensure it's 8 digits, not starting with 0
+  let code;
+  let attempts = 0;
+  const maxAttempts = 5;
+  
+  do {
+    code = Math.floor(10000000 + Math.random() * 90000000).toString();
+    attempts++;
     
-    // Validate input
-    if (!phoneNumber || !validatePhoneNumber(phoneNumber)) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid phone number format. Please enter 9-12 digits.'
-      });
-    }
-    
-    const cleanPhone = phoneNumber.replace(/\D/g, '');
-    const fullNumber = countryCode + cleanPhone;
-    
-    // Check for existing active code if DB is connected
+    // Check if code exists in database (if connected)
     if (isDBConnected) {
       try {
-        const existingCode = await PairingCode.findOne({
-          fullNumber,
+        const PairingCode = mongoose.models.PairingCode || mongoose.model('PairingCode', pairingCodeSchema);
+        const existing = await PairingCode.findOne({ 
+          pairingCode: code, 
           status: 'pending',
           expiresAt: { $gt: new Date() }
         });
-        
-        if (existingCode) {
-          return res.json({
-            success: true,
-            pairingCode: existingCode.pairingCode,
-            fullNumber: existingCode.fullNumber,
-            expiresAt: existingCode.expiresAt,
-            message: 'Using existing active code'
-          });
-        }
-      } catch (dbError) {
-        console.warn('Database check failed:', dbError.message);
+        if (!existing) break;
+      } catch (err) {
+        break; // If DB check fails, use the code
       }
+    } else {
+      // Check in-memory storage
+      if (!memoryStorage.findCode(code)) break;
+    }
+  } while (attempts < maxAttempts);
+  
+  return code;
+};
+
+// ==================== DATABASE SCHEMAS ====================
+const pairingCodeSchema = new mongoose.Schema({
+  phoneNumber: String,
+  pairingCode: { type: String, unique: true },
+  sessionId: String,
+  status: { type: String, default: 'pending' },
+  createdAt: { type: Date, default: Date.now },
+  expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) }
+});
+
+let PairingCode;
+try {
+  PairingCode = mongoose.model('PairingCode');
+} catch {
+  PairingCode = mongoose.model('PairingCode', pairingCodeSchema);
+}
+
+// ==================== SIMPLIFIED HTML TEMPLATES ====================
+const landingPage = `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>IAN TECH - 8-Digit WhatsApp Pairing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px; }
+    .container { background: #f5f5f5; padding: 30px; border-radius: 10px; }
+    input, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 5px; }
+    button { background: #25D366; color: white; border: none; cursor: pointer; }
+    .code { font-size: 32px; letter-spacing: 10px; text-align: center; background: white; padding: 20px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>🔐 IAN TECH WhatsApp Pairing</h2>
+    <p>Enter your phone number to get an 8-digit pairing code</p>
+    <form id="pairForm">
+      <input type="tel" id="phone" placeholder="723278526 (without +254)" required>
+      <button type="submit">Generate 8-Digit Code</button>
+    </form>
+    <div id="result"></div>
+  </div>
+  <script>
+    document.getElementById('pairForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const phone = document.getElementById('phone').value;
+      const btn = e.target.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      
+      try {
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ phoneNumber: phone })
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+          document.getElementById('result').innerHTML = \`
+            <h3>✅ Your 8-Digit Code:</h3>
+            <div class="code">\${data.pairingCode}</div>
+            <p>Expires in 10 minutes</p>
+            \${data.qrCode ? '<img src="' + data.qrCode + '" alt="QR Code" width="200">' : ''}
+            <p>Open WhatsApp → Settings → Linked Devices → Link a Device</p>
+            <p>Enter this code: <strong>\${data.pairingCode}</strong></p>
+          \`;
+        } else {
+          alert('Error: ' + data.error);
+        }
+      } catch (err) {
+        alert('Network error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate 8-Digit Code';
+      }
+    });
+  </script>
+</body>
+</html>
+`;
+
+// ==================== ROUTES ====================
+app.get('/', (req, res) => {
+  res.send(landingPage);
+});
+
+// Generate 8-digit code
+app.post('/api/generate', async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+    
+    if (!phoneNumber || !/^\d{9,12}$/.test(phoneNumber)) {
+      return res.json({ 
+        success: false, 
+        error: 'Enter 9-12 digit phone number' 
+      });
     }
     
-    // Generate unique code
-    const pairingCode = await generateUniqueCode();
-    const sessionId = `IAN_TECH_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    const fullNumber = '+254' + phoneNumber;
+    const pairingCode = await generate8DigitCode();
+    const sessionId = 'SESS_' + crypto.randomBytes(4).toString('hex');
+    
+    let qrCodeUrl = null;
+    try {
+      qrCodeUrl = await QRCode.toDataURL(`WHATSAPP:${pairingCode}`);
+    } catch (qrErr) {
+      console.log('QR generation skipped');
+    }
     
     // Save to database if connected
     if (isDBConnected) {
       try {
-        const pairingRecord = new PairingCode({
-          phoneNumber: cleanPhone,
-          countryCode,
-          fullNumber,
+        const codeRecord = new PairingCode({
+          phoneNumber: fullNumber,
           pairingCode,
           sessionId,
-          ipAddress: req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress,
-          userAgent: req.get('User-Agent') || 'Unknown',
-          deviceInfo: {
-            platform: req.headers['sec-ch-ua-platform'] || 'Unknown',
-            browser: req.get('User-Agent') || 'Unknown',
-            os: 'Unknown'
-          },
-          expiresAt
+          status: 'pending'
         });
-        
-        await pairingRecord.save();
-        
-        const botSession = new BotSession({
-          sessionId,
-          phoneNumber: fullNumber,
-          status: 'pending',
-          createdAt: new Date()
-        });
-        
-        await botSession.save();
-        
-      } catch (saveError) {
-        console.error('Failed to save to database:', saveError.message);
-        // Continue without database save
+        await codeRecord.save();
+      } catch (dbErr) {
+        console.log('DB save failed, using memory:', dbErr.message);
+        memoryStorage.saveCode(pairingCode, fullNumber, sessionId);
       }
+    } else {
+      memoryStorage.saveCode(pairingCode, fullNumber, sessionId);
     }
     
     res.json({
       success: true,
       pairingCode,
       fullNumber,
-      sessionId: isDBConnected ? sessionId : 'NO_DB',
-      expiresAt,
-      whatsappLink: `https://wa.me/${fullNumber.replace('+', '')}?text=Your%20IAN%20TECH%20Pairing%20Code:%20${pairingCode}`,
-      databaseStatus: isDBConnected ? 'connected' : 'disconnected'
+      sessionId,
+      qrCode: qrCodeUrl,
+      expiresIn: '10 minutes',
+      database: isDBConnected ? 'MongoDB' : 'Memory Storage'
     });
     
   } catch (error) {
-    console.error('Error generating pairing code:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error'
+    console.error('Generate error:', error);
+    res.json({ 
+      success: false, 
+      error: 'Server error' 
     });
   }
 });
 
-// Success page
-app.get('/pairing-success', async (req, res) => {
-  try {
-    const { code, phone } = req.query;
-    
-    if (!code || !phone) {
-      return res.redirect('/');
-    }
-    
-    let pairingRecord = null;
-    let qrCodeUrl = null;
-    
-    // Try to get from database
-    if (isDBConnected) {
-      try {
-        pairingRecord = await PairingCode.findOne({
-          pairingCode: code,
-          fullNumber: decodeURIComponent(phone)
-        });
-      } catch (dbError) {
-        console.warn('Database query failed:', dbError.message);
-      }
-    }
-    
-    // Generate QR code locally
+// Check code status
+app.get('/api/check/:code', async (req, res) => {
+  const { code } = req.params;
+  
+  if (!/^\d{8}$/.test(code)) {
+    return res.json({ valid: false, reason: 'Invalid code format' });
+  }
+  
+  if (isDBConnected) {
     try {
-      const qrData = `WHATSAPP-PAIR:${code}`;
-      qrCodeUrl = await QRCode.toDataURL(qrData, {
-        errorCorrectionLevel: 'H',
-        margin: 1,
-        width: 250
+      const found = await PairingCode.findOne({ 
+        pairingCode: code,
+        status: 'pending',
+        expiresAt: { $gt: new Date() }
       });
-    } catch (qrError) {
-      console.warn('QR code generation failed:', qrError.message);
-    }
-    
-    // Format expiry time
-    let formattedExpiry = '10 minutes';
-    if (pairingRecord && pairingRecord.expiresAt) {
-      const expiresAt = new Date(pairingRecord.expiresAt);
-      formattedExpiry = expiresAt.toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true 
-      });
-    }
-    
-    res.send(htmlTemplates.successPage(
-      code,
-      decodeURIComponent(phone),
-      qrCodeUrl,
-      formattedExpiry
-    ));
-    
-  } catch (error) {
-    console.error('Error loading success page:', error);
-    res.redirect('/');
-  }
-});
-
-// Check pairing status
-app.get('/api/pairing-status/:code', async (req, res) => {
-  try {
-    const { code } = req.params;
-    
-    let pairingRecord = null;
-    if (isDBConnected) {
-      try {
-        pairingRecord = await PairingCode.findOne({ pairingCode: code });
-      } catch (dbError) {
-        console.warn('Database query failed:', dbError.message);
+      
+      if (found) {
+        return res.json({ 
+          valid: true, 
+          phone: found.phoneNumber,
+          status: found.status 
+        });
       }
+    } catch (err) {
+      // Fall through to memory check
     }
-    
-    if (!pairingRecord) {
-      return res.json({
-        success: false,
-        error: 'Code not found or database unavailable',
-        databaseStatus: isDBConnected ? 'connected' : 'disconnected'
-      });
-    }
-    
-    res.json({
-      success: true,
-      status: pairingRecord.status,
-      phoneNumber: pairingRecord.fullNumber,
-      sessionId: pairingRecord.sessionId,
-      createdAt: pairingRecord.createdAt,
-      expiresAt: pairingRecord.expiresAt,
-      linkedAt: pairingRecord.linkedAt,
-      databaseStatus: 'connected'
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      databaseStatus: isDBConnected ? 'connected' : 'disconnected'
+  }
+  
+  // Check memory storage
+  const memoryCode = memoryStorage.findCode(code);
+  if (memoryCode && new Date(memoryCode.expiresAt) > new Date()) {
+    return res.json({ 
+      valid: true, 
+      phone: memoryCode.phoneNumber,
+      status: memoryCode.status 
     });
   }
+  
+  res.json({ valid: false, reason: 'Code not found or expired' });
 });
 
-// Update pairing status
-app.post('/api/pairing-linked/:code', async (req, res) => {
-  try {
-    const { code } = req.params;
-    
-    if (!isDBConnected) {
-      return res.status(503).json({
-        success: false,
-        error: 'Database unavailable'
-      });
-    }
-    
-    const pairingRecord = await PairingCode.findOneAndUpdate(
-      { pairingCode: code },
-      {
-        status: 'active',
-        linkedAt: new Date()
-      },
-      { new: true }
-    );
-    
-    if (!pairingRecord) {
-      return res.status(404).json({
-        success: false,
-        error: 'Code not found'
-      });
-    }
-    
-    await BotSession.findOneAndUpdate(
-      { sessionId: pairingRecord.sessionId },
-      {
-        status: 'active',
-        lastActive: new Date()
-      }
-    );
-    
-    res.json({
-      success: true,
-      message: 'Pairing marked as active',
-      phoneNumber: pairingRecord.fullNumber
-    });
-    
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
-
-// Health check endpoint
+// Health endpoint
 app.get('/health', (req, res) => {
-  const healthStatus = {
-    status: 'healthy',
-    service: 'IAN TECH Pairing Service',
-    version: '2.1.0',
-    timestamp: new Date().toISOString(),
-    database: isDBConnected ? 'connected' : 'disconnected',
-    memory: process.memoryUsage(),
-    uptime: process.uptime()
-  };
-  res.json(healthStatus);
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    error: 'Endpoint not found'
-  });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err.stack);
-  res.status(500).json({
-    success: false,
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message
+  res.json({
+    status: 'online',
+    version: '3.0.0',
+    codeLength: CODE_LENGTH,
+    database: isDBConnected ? 'connected' : 'memory',
+    timestamp: new Date().toISOString()
   });
 });
 
 // ==================== START SERVER ====================
-const PORT = process.env.PORT || 3001;
-
-const server = app.listen(PORT, () => {
-  console.log('\n' + '═'.repeat(60));
-  console.log('   🤖 IAN TECH WHATSAPP PAIRING SERVICE v2.1.0');
-  console.log('   🔗 Secure Device Pairing System');
-  console.log('═'.repeat(60));
-  console.log(`\n✅ Server running on port ${PORT}`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📊 Database: ${isDBConnected ? '✅ Connected' : '❌ Disconnected'}`);
-  console.log(`🔧 Health check: http://localhost:${PORT}/health`);
-  console.log(`📱 Generate code: http://localhost:${PORT}`);
-  console.log('\n' + '═'.repeat(60));
-  console.log('🚀 Ready for deployment!');
-  console.log('═'.repeat(60));
+const server = app.listen(PORT, HOST, () => {
+  console.log('\n' + '═'.repeat(50));
+  console.log('   🤖 IAN TECH 8-DIGIT PAIRING SERVICE');
+  console.log('   🔐 8-Digit Codes | Replit Optimized');
+  console.log('═'.repeat(50));
+  console.log(`✅ Server: http://${HOST}:${PORT}`);
+  console.log(`📱 Generate: http://localhost:${PORT}`);
+  console.log(`🩺 Health: http://localhost:${PORT}/health`);
+  console.log(`🗄️  Database: ${isDBConnected ? 'MongoDB ✅' : 'Memory ⚠️'}`);
+  console.log(`🔢 Code Length: ${CODE_LENGTH} digits`);
+  console.log('═'.repeat(50));
+  console.log('🚀 Ready for Replit deployment!');
+  console.log('👉 Open the Webview tab to see your pairing page');
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('\n🔻 Shutting down gracefully...');
+// Replit-specific: Handle process termination
+process.on('SIGINT', () => {
+  console.log('\n🔻 Shutting down...');
   server.close(() => {
-    console.log('✅ Server closed');
     if (mongoose.connection.readyState === 1) {
       mongoose.connection.close(false, () => {
-        console.log('✅ MongoDB connection closed');
         process.exit(0);
       });
     } else {
@@ -545,4 +340,4 @@ process.on('SIGTERM', () => {
   });
 });
 
-export { app, PairingCode, BotSession, verifyPairingCodeInBot };
+export default app;
