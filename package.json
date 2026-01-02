@@ -1,4 +1,3 @@
-
 {
   "name": "ian-tech-pairing",
   "version": "3.0.0",
@@ -6,39 +5,16 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js",
-    "test": "echo \"No tests specified\" && exit 0"
+    "start": "node server.js"
   },
-  "keywords": [
-    "whatsapp",
-    "pairing",
-    "bot",
-    "baileys",
-    "gifted-baileys"
-  ],
+  "keywords": ["whatsapp", "pairing", "bot", "baileys"],
   "author": "IAN TECH",
   "license": "ISC",
   "dependencies": {
     "@whiskeysockets/baileys": "npm:gifted-baileys@2.0.0",
     "express": "^4.19.2",
     "qrcode-terminal": "^0.12.0",
-    "dotenv": "^16.3.1",
-    "mongoose": "^7.0.0",
-    "axios": "^1.2.5",
-    "fs-extra": "^11.1.0",
-    "pino": "^7.0.5",
     "qrcode": "^1.5.3",
-    "crypto": "latest",
-    "path": "latest",
-    "os": "latest",
-    "fs": "^0.0.1-security",
-    "fluent-ffmpeg": "latest",
-    "ffmpeg-static": "latest",
-    "jimp": "^0.16.3",
-    "adm-zip": "latest",
-    "cheerio": "latest",
-    "form-data": "^4.0.1",
-    "node-fetch": "^3.3.2"
+    "pino": "^7.0.5"
   }
 }
