@@ -1,74 +1,19 @@
 # IAN TECH WhatsApp Pairing Service
-# Configuration for Replit deployment
+# Simplified Replit configuration
 
-# Always keep the repl running
-run = ["npm", "start"]
+run = "npm start"
 
-# Command to start the service
-entrypoint = "server.js"
-
-# Environment variables for IAN TECH
 [env]
-IAN_TECH_COMPANY_NAME = "IAN TECH"
-IAN_TECH_CONTACT = "+254724278526"
-IAN_TECH_EMAIL = "contact@iantech.co.ke"
-IAN_TECH_WEBSITE = "https://iantech.co.ke"
+COMPANY_NAME = "IAN TECH"
+CONTACT_PHONE = "+254724278526"
+COMPANY_EMAIL = "contact@iantech.co.ke"
+COMPANY_WEBSITE = "https://iantech.co.ke"
 NODE_ENV = "production"
 PORT = "5000"
 
-# Replit features configuration
-[features]
-search = true
-shell = true
-debugger = true
-multiplayer = true
-
-# Language configuration
-[languages]
-javascript = { pattern = ["\\.js$", "\\.jsx$", "\\.ts$", "\\.tsx$"] }
-
-# Git configuration
-[git]
-sync = true
-
-# Port configuration for web preview
-[ports]
-0 = { external = true, protocol = "http", description = "IAN TECH WhatsApp Pairing Service" }
-
-[unitTest]
-enable = false
-
-# Build configuration
-[build]
-# Clear any cached files before building
-prebuild = "rm -rf node_modules package-lock.json && npm cache clean --force"
-
-# Install dependencies
-install = "npm install"
-
-# Start the server
-start = "npm start"
-
-# Enable Always On for 24/7 service
-alwaysOn = true
-
-# HTTP server configuration
-[http]
-# Enable HTTP server
-enabled = true
-
-# Route all requests to the server
-rewrites = { "/**": "/" }
-
-# Enable public access
-public = true
-
-# Enable WebSocket support for WhatsApp connection
-enableWebSocket = true
-
-# Custom domain (if you have one)
-# domain = "whatsapp.iantech.co.ke"
-
-# Nix package configuration
 [nix]
 channel = "stable-23_11"
+
+[deployment]
+deploymentTarget = "cloudrun"
+run = "npm start"
