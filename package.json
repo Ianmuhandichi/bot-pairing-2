@@ -1,22 +1,73 @@
+
 {
   "name": "ian-tech-whatsapp-pairing",
-  "version": "5.0.0",
-  "description": "IAN TECH WhatsApp Pairing Server with Alphanumeric Codes",
+  "version": "2.0.0",
+  "description": "WhatsApp Device Pairing Service by IAN TECH",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "nodemon server.js",
+    "ian": "node server.js",
+    "tech": "pm2 start server.js --name 'ian-tech-pairing' --attach --max-memory-restart 500M",
+    "restart": "pm2 restart ian-tech-pairing",
+    "stop": "pm2 stop ian-tech-pairing",
+    "test": "echo \"IAN TECH WhatsApp Pairing Service\" && exit 0"
   },
-  "keywords": ["whatsapp", "pairing", "qr", "alphanumeric", "baileys"],
-  "author": "IAN TECH",
-  "license": "ISC",
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "pairing",
+    "bot",
+    "ian-tech",
+    "whatsapp-bot",
+    "device-pairing",
+    "kenya",
+    "whatsapp-api"
+  ],
+  "author": "IAN TECH <+254724278526>",
+  "license": "PROPRIETARY",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ian-tech/whatsapp-pairing"
+  },
+  "bugs": {
+    "url": "https://github.com/ian-tech/whatsapp-pairing/issues",
+    "email": "support@iantech.co.ke"
+  },
+  "homepage": "https://iantech.co.ke/whatsapp-pairing",
+  "contact": {
+    "name": "IAN TECH",
+    "phone": "+254724278526",
+    "email": "contact@iantech.co.ke",
+    "website": "https://iantech.co.ke"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "npm:gifted-baileys@2.0.0",
     "express": "^4.19.2",
-    "qrcode-terminal": "^0.12.0",
     "qrcode": "^1.5.3",
-    "pino": "^7.0.5",
-    "crypto": "^1.0.1"
+    "crypto": "^1.0.1",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7",
+    "pino": "^8.16.2",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.5",
+    "pm2": "^5.3.0",
+    "nodemon": "^3.0.1",
+    "morgan": "^1.10.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "config": {
+    "company": "IAN TECH",
+    "contact": "+254724278526",
+    "default_port": 5000,
+    "session_prefix": "IAN_TECH",
+    "code_length": 8,
+    "code_expiry": 10
   }
 }
