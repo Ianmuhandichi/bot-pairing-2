@@ -2,17 +2,22 @@
 {
   "name": "ian-tech-whatsapp-pairing",
   "version": "2.0.0",
-  "description": "WhatsApp Device Pairing Service by IAN TECH",
+  "description": "WhatsApp Device Pairing Service by IAN TECH - Replit Edition",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js",
+    "start": "NODE_ENV=production node server.js",
+    "ian": "NODE_ENV=production node server.js",
+    "tech": "NODE_ENV=production pm2 start server.js --name 'ian-tech-pairing' --attach --max-memory-restart 490M",
     "dev": "nodemon server.js",
-    "ian": "node server.js",
-    "tech": "pm2 start server.js --name 'ian-tech-pairing' --attach --max-memory-restart 500M",
     "restart": "pm2 restart ian-tech-pairing",
     "stop": "pm2 stop ian-tech-pairing",
-    "test": "echo \"IAN TECH WhatsApp Pairing Service\" && exit 0"
+    "logs": "pm2 logs ian-tech-pairing",
+    "status": "pm2 status",
+    "deploy": "npm install && npm run tech",
+    "clean": "rm -rf auth_info node_modules package-lock.json",
+    "reset": "rm -rf auth_info && npm run start",
+    "test": "echo \"IAN TECH WhatsApp Pairing Service v2.0.0\" && node -v && npm -v"
   },
   "keywords": [
     "whatsapp",
@@ -23,7 +28,8 @@
     "whatsapp-bot",
     "device-pairing",
     "kenya",
-    "whatsapp-api"
+    "whatsapp-api",
+    "replit"
   ],
   "author": "IAN TECH <+254724278526>",
   "license": "PROPRIETARY",
@@ -56,7 +62,8 @@
     "nodemon": "^3.0.1",
     "morgan": "^1.10.0",
     "cors": "^2.8.5",
-    "helmet": "^7.1.0"
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4"
   },
   "engines": {
     "node": ">=16.0.0",
@@ -68,6 +75,7 @@
     "default_port": 5000,
     "session_prefix": "IAN_TECH",
     "code_length": 8,
-    "code_expiry": 10
+    "code_expiry": 10,
+    "replit": true
   }
 }
