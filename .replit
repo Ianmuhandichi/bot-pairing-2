@@ -1,5 +1,4 @@
-# IAN TECH WhatsApp Pairing Service
-# Simplified Replit configuration
+
 
 run = "npm start"
 
